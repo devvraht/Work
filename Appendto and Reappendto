@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swap & Reappend Leaflet Map and Image</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        #container {
+            display: flex;
+            gap: 20px;
+        }
+        .box {
+            width: 400px;
+            height: 300px;
+            border: 2px solid black;
+        }
+        .map-container {
+            width: 100%;
+            height: 100%;
+        }
+        img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+    </style>
+</head>
+<body>
+
+    <button id="swapBtn">Swap Elements</button>
+    <div id="container">
+        <div id="mapContainer" class="box">
+            <div id="map" class="map-container"></div>
+        </div>
+        <div id="imageContainer" class="box">
+            <img src="https://via.placeholder.com/400x300" alt="Placeholder Image">
+        </div>
+    </div>
+
+    <script>
+        $(document).ready(function () {
+            var originalParentMap = $("#mapContainer");
+            var originalParentImage = $("#imageContainer");
+            var swapped = false; // Toggle state
+
+            // Initialize Leaflet Map
+            var map = L.map('map').setView([51.505, -0.09], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+
+            $("#swapBtn").click(function () {
+                if (!swapped) {
+                    // Move map and image to the new containers
+                    $("#map").detach().appendTo(originalParentImage);
+                    $("#imageContainer img").detach().appendTo(originalParentMap);
+
+                    // Destroy the existing map and reinitialize in the new div
+                    setTimeout(function () {
+                        map.remove(); // Remove the old instance
+                        map = L.map('map').setView([51.505, -0.09], 13);
+                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                            attribution: '&copy; OpenStreetMap contributors'
+                        }).addTo(map);
+                    }, 100);
+                } else {
+                    // Move back to original positions
+                    $("#map").detach().appendTo(originalParentMap);
+                    $("#imageContainer img").detach().appendTo(originalParentImage);
+
+                    // Destroy and reinitialize the map in its original position
+                    setTimeout(function () {
+                        map.remove();
+                        map = L.map('map').setView([51.505, -0.09], 13);
+                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                            attribution: '&copy; OpenStreetMap contributors'
+                        }).addTo(map);
+                    }, 100);
+                }
+                
+                swapped = !swapped;
+            });
+        });
+    </script>
+
+</body>
+</html>
