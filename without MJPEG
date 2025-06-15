@@ -1,0 +1,208 @@
+✅ Perfect. Since you **don't want MJPEG**, are targeting **very low bandwidth (\~25 kbps)**, and prefer a **Go + OpenCV + UDP** solution with a browser frontend, here's how to build the correct **minimal, efficient live streaming system**:
+
+---
+
+## ✅ Final Architecture (No MJPEG)
+
+```
+CLIENT (Go + OpenCV)
+│
+├─ Capture live stream from YouTube (OpenCV)
+├─ Resize to 160x120, grayscale
+├─ JPEG encode to ~2 KB
+└─ Send over UDP every 3–5 seconds
+         ↓
+SERVER (Go HTTP + UDP)
+│
+├─ Receive JPEG packet from client
+├─ Save latest frame as /static/frame.jpg
+└─ Serve HTML page + latest frame to browser
+         ↓
+BROWSER
+└─ HTML reloads /frame.jpg every 5 seconds (no MJPEG)
+```
+
+---
+
+## 🧩 Client Code: `client.go` (No MJPEG, UDP sender)
+
+```go
+package main
+
+import (
+	"fmt"
+	"gocv.io/x/gocv"
+	"image"
+	"net"
+	"os/exec"
+	"strings"
+	"time"
+)
+
+const (
+	serverAddr = "127.0.0.1:9000"
+	youtubeURL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+)
+
+func getYouTubeStreamURL() string {
+	out, err := exec.Command("yt-dlp", "-f", "best", "-g", youtubeURL).Output()
+	if err != nil {
+		panic("yt-dlp error: " + err.Error())
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func main() {
+	streamURL := getYouTubeStreamURL()
+
+	webcam, err := gocv.VideoCaptureFile(streamURL)
+	if err != nil {
+		panic("Could not open stream: " + err.Error())
+	}
+	defer webcam.Close()
+
+	img := gocv.NewMat()
+	defer img.Close()
+
+	conn, err := net.Dial("udp", serverAddr)
+	if err != nil {
+		panic("UDP connection failed: " + err.Error())
+	}
+	defer conn.Close()
+
+	for {
+		if ok := webcam.Read(&img); !ok || img.Empty() {
+			fmt.Println("Failed to read frame.")
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		// Resize and convert to grayscale
+		gocv.Resize(img, &img, image.Pt(160, 120), 0, 0, gocv.InterpolationArea)
+		gocv.CvtColor(img, &img, gocv.ColorBGRToGray)
+
+		buf, err := gocv.IMEncode(".jpg", img)
+		if err != nil || len(buf) > 65000 {
+			fmt.Println("Encoding error or too large.")
+			continue
+		}
+
+		conn.Write(buf)
+		time.Sleep(5 * time.Second) // 1 frame every 5 seconds ~ good for 25kbps
+	}
+}
+```
+
+---
+
+## 🧩 Server Code: `server.go` (UDP receiver + HTTP server)
+
+```go
+package main
+
+import (
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+)
+
+const (
+	port     = ":9000"
+	savePath = "./static/frame.jpg"
+)
+
+func main() {
+	go startUDPServer()
+
+	// Serve static HTML and frame.jpg
+	http.Handle("/", http.FileServer(http.Dir("./static")))
+	fmt.Println("HTTP server at http://localhost:8080")
+	http.ListenAndServe(":8080", nil)
+}
+
+func startUDPServer() {
+	addr, _ := net.ResolveUDPAddr("udp", port)
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		panic("UDP listen error: " + err.Error())
+	}
+	defer conn.Close()
+
+	buf := make([]byte, 65535)
+
+	for {
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			continue
+		}
+
+		// Save JPEG to disk
+		os.WriteFile(savePath, buf[:n], 0644)
+	}
+}
+```
+
+---
+
+## 🧩 HTML Page: `static/index.html`
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="refresh" content="5">
+  <title>Live Frame (Low Bandwidth)</title>
+</head>
+<body>
+  <h2>Live Frame Stream</h2>
+  <img src="frame.jpg" width="320" />
+  <p>Frame updates every 5 seconds</p>
+</body>
+</html>
+```
+
+---
+
+## 📦 Dependencies to Install
+
+```bash
+# GoCV
+go install gocv.io/x/gocv
+
+# yt-dlp for stream extraction
+pip install yt-dlp
+
+# ffmpeg is required by yt-dlp to extract stream URL (installed separately)
+```
+
+---
+
+## ✅ Key Advantages of This Setup
+
+| Feature                  | Status                       |
+| ------------------------ | ---------------------------- |
+| No MJPEG                 | ✅                            |
+| No ffmpeg during runtime | ✅                            |
+| Low bandwidth support    | ✅ (3 KB every 5s = 5 kbps)   |
+| Asynchronous (UDP)       | ✅                            |
+| Browser compatible       | ✅ (via static image polling) |
+| Very simple              | ✅ only 2 Go files            |
+
+---
+
+## ⚠️ Optional Upgrades
+
+* Add reconnection logic in client
+* Add timestamp or hash in filename to prevent browser caching (`frame.jpg?ts=...`)
+* Add multiple clients with camera ID headers
+
+---
+
+Would you like:
+
+* 🧪 This converted into a GitHub repo?
+* 📁 Multiple camera support?
+* 🧠 AI analysis before sending frames?
+
+Let me know — I’ll prepare the next version accordingly!
