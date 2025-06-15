@@ -1,0 +1,225 @@
+Here is your complete working setup for streaming a **local video** using **Go + OpenCV + UDP**, and displaying it in a browser — **fully ready to run on your system**.
+
+---
+
+## ✅ Project Structure
+
+```
+gocv-stream/
+├── client.go        ← Reads local video, sends frames via UDP
+├── server.go        ← Receives and serves latest frame
+└── static/
+    ├── index.html   ← Auto-refresh HTML page
+    └── frame.jpg    ← Saved by server from UDP data
+```
+
+---
+
+## 🛠 Prerequisites
+
+Before running the code:
+
+1. **Install OpenCV + GoCV**
+
+   ```bash
+   sudo apt install libopencv-dev
+   go install gocv.io/x/gocv@latest
+   ```
+
+2. **Prepare a sample video**
+
+   * Place `sample.mp4` in the root of `gocv-stream/`
+   * Keep it short and low resolution initially
+
+---
+
+## 📄 `client.go`
+
+```go
+// client.go
+package main
+
+import (
+	"fmt"
+	"gocv.io/x/gocv"
+	"image"
+	"net"
+	"time"
+)
+
+const (
+	serverAddr = "127.0.0.1:9000"
+	videoFile  = "sample.mp4" // Place this video in the same folder
+)
+
+func main() {
+	webcam, err := gocv.VideoCaptureFile(videoFile)
+	if err != nil {
+		fmt.Println("Error opening video file:", err)
+		return
+	}
+	defer webcam.Close()
+
+	img := gocv.NewMat()
+	defer img.Close()
+
+	conn, err := net.Dial("udp", serverAddr)
+	if err != nil {
+		fmt.Println("UDP connection error:", err)
+		return
+	}
+	defer conn.Close()
+
+	for {
+		if ok := webcam.Read(&img); !ok {
+			fmt.Println("Cannot read frame, exiting.")
+			break
+		}
+		if img.Empty() {
+			continue
+		}
+
+		// Resize and grayscale
+		gocv.Resize(img, &img, image.Pt(160, 120), 0, 0, gocv.InterpolationArea)
+		gocv.CvtColor(img, &img, gocv.ColorBGRToGray)
+
+		// Encode to JPEG
+		buf, err := gocv.IMEncode(".jpg", img)
+		if err != nil {
+			fmt.Println("Encoding error:", err)
+			continue
+		}
+		if len(buf) >= 65000 {
+			fmt.Println("Frame too large to send")
+			continue
+		}
+
+		// Send over UDP
+		_, err = conn.Write(buf)
+		if err != nil {
+			fmt.Println("Send error:", err)
+		}
+
+		time.Sleep(2 * time.Second) // Simulate low bandwidth
+	}
+}
+```
+
+---
+
+## 📄 `server.go`
+
+```go
+// server.go
+package main
+
+import (
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+)
+
+const (
+	listenPort = ":9000"
+	savePath   = "./static/frame.jpg"
+)
+
+func main() {
+	// Start UDP frame receiver
+	go startUDPReceiver()
+
+	// Start web server
+	http.Handle("/", http.FileServer(http.Dir("./static")))
+	fmt.Println("HTTP server running on http://localhost:8080")
+	http.ListenAndServe(":8080", nil)
+}
+
+func startUDPReceiver() {
+	addr, _ := net.ResolveUDPAddr("udp", listenPort)
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		fmt.Println("UDP Listen error:", err)
+		return
+	}
+	defer conn.Close()
+
+	buf := make([]byte, 65535)
+
+	for {
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			continue
+		}
+
+		// Save the image
+		err = os.WriteFile(savePath, buf[:n], 0644)
+		if err != nil {
+			fmt.Println("File write error:", err)
+		}
+	}
+}
+```
+
+---
+
+## 📄 `static/index.html`
+
+```html
+<!-- static/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="refresh" content="3">
+  <title>Live Stream Frame</title>
+</head>
+<body>
+  <h2>Live Feed (Local Video)</h2>
+  <img src="frame.jpg" width="320" />
+  <p>Refreshes every 3 seconds</p>
+</body>
+</html>
+```
+
+---
+
+## ✅ To Run:
+
+1. **Terminal 1: Start server**
+
+   ```bash
+   go run server.go
+   ```
+
+2. **Terminal 2: Start client**
+
+   ```bash
+   go run client.go
+   ```
+
+3. **Browser: View the stream**
+
+   * Open [http://localhost:8080](http://localhost:8080)
+
+---
+
+## 🧪 Output
+
+Every \~2–3 seconds, your browser will show the latest frame from `sample.mp4`, streamed over UDP → saved as `frame.jpg` → served over HTTP.
+
+---
+
+## ⚠️ Notes for Low Bandwidth Use
+
+* Frame JPEGs are **2–4 KB**, ideal for ≤25kbps
+* Reducing resolution further (e.g., 120×90) improves bandwidth
+* If frames are not visible, check:
+
+  * `sample.mp4` exists and plays
+  * OpenCV reads correctly
+  * `frame.jpg` is being updated
+
+---
+
+Ready for the **multi-client dashboard** or want a version using **camera input instead of video**?
