@@ -1,0 +1,201 @@
+Perfect — starting with a **local video file** is the best way to test and debug quickly without worrying about network latency or stream fetching from YouTube.
+
+---
+
+## ✅ What You’ll Build
+
+> A simple **client-server system** using Go + OpenCV + UDP + HTTP, where:
+
+* The **client** reads frames from a `.mp4` video file
+* It resizes, grayscales, encodes to JPEG, and sends over UDP
+* The **server** receives JPEG frames, saves to `frame.jpg`
+* A **browser** page shows updated frame every few seconds
+
+---
+
+### 📂 Project Structure
+
+```
+gocv-stream/
+├── client.go        ← Reads local video, sends frames over UDP
+├── server.go        ← Receives frames, serves them via HTTP
+└── static/
+    ├── index.html   ← Browser auto-refresh page
+    └── frame.jpg    ← Updated frame
+```
+
+---
+
+## 🧩 Step 1: Install Dependencies
+
+Make sure these are installed:
+
+```bash
+# OpenCV and GoCV (assuming you're using WSL or Linux)
+sudo apt install libopencv-dev
+go install gocv.io/x/gocv@latest
+```
+
+---
+
+## 🧩 Step 2: Create `client.go`
+
+```go
+// client.go
+package main
+
+import (
+	"fmt"
+	"gocv.io/x/gocv"
+	"image"
+	"net"
+	"time"
+)
+
+const (
+	serverAddr = "127.0.0.1:9000"
+	videoPath  = "sample.mp4" // Replace with your local video
+)
+
+func main() {
+	video, err := gocv.VideoCaptureFile(videoPath)
+	if err != nil {
+		panic("Cannot open video: " + err.Error())
+	}
+	defer video.Close()
+
+	conn, err := net.Dial("udp", serverAddr)
+	if err != nil {
+		panic("UDP dial failed: " + err.Error())
+	}
+	defer conn.Close()
+
+	img := gocv.NewMat()
+	defer img.Close()
+
+	for {
+		if ok := video.Read(&img); !ok || img.Empty() {
+			fmt.Println("End of video or failed frame.")
+			break
+		}
+
+		// Resize + grayscale
+		gocv.Resize(img, &img, image.Pt(160, 120), 0, 0, gocv.InterpolationArea)
+		gocv.CvtColor(img, &img, gocv.ColorBGRToGray)
+
+		buf, err := gocv.IMEncode(".jpg", img)
+		if err != nil || len(buf) > 65000 {
+			fmt.Println("Encoding too big or failed.")
+			continue
+		}
+
+		conn.Write(buf)
+		fmt.Println("Frame sent.")
+		time.Sleep(3 * time.Second) // simulate low bandwidth
+	}
+}
+```
+
+---
+
+## 🧩 Step 3: Create `server.go`
+
+```go
+// server.go
+package main
+
+import (
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+)
+
+const (
+	port     = ":9000"
+	savePath = "./static/frame.jpg"
+)
+
+func main() {
+	go udpReceiver()
+
+	http.Handle("/", http.FileServer(http.Dir("./static")))
+	fmt.Println("HTTP server running at http://localhost:8080")
+	http.ListenAndServe(":8080", nil)
+}
+
+func udpReceiver() {
+	addr, _ := net.ResolveUDPAddr("udp", port)
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		panic("UDP listen failed: " + err.Error())
+	}
+	defer conn.Close()
+
+	buf := make([]byte, 65535)
+
+	for {
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			continue
+		}
+
+		err = os.WriteFile(savePath, buf[:n], 0644)
+		if err != nil {
+			fmt.Println("Failed to save frame:", err)
+		}
+	}
+}
+```
+
+---
+
+## 🧩 Step 4: Create `static/index.html`
+
+```html
+<!-- static/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="refresh" content="5">
+  <title>Live Frame</title>
+</head>
+<body>
+  <h2>Latest Frame</h2>
+  <img src="frame.jpg" width="320" />
+  <p>Updated every 5 seconds</p>
+</body>
+</html>
+```
+
+---
+
+## 🧪 Step 5: Run and Test
+
+```bash
+# Terminal 1
+go run server.go
+
+# Terminal 2 (after video exists)
+go run client.go
+
+# Browser
+open http://localhost:8080
+```
+
+You should see the image update every \~5 seconds, simulating ultra-low-bandwidth streaming using UDP.
+
+---
+
+## ✅ What You Can Modify Later
+
+| Feature          | How                                             |
+| ---------------- | ----------------------------------------------- |
+| Faster frames    | `time.Sleep(1 * time.Second)` in `client.go`    |
+| Multiple clients | Add client ID in UDP packet header              |
+| Color frames     | Remove `CvtColor` grayscale step                |
+| Reduce size      | Lower JPEG quality (can be added to `IMEncode`) |
+
+---
+
+Would you like a ZIP of this full code or want help building a **multi-client dashboard** next?
