@@ -1,0 +1,320 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"sync"
+
+	socketio "github.com/googollee/go-socket.io"
+	"github.com/googollee/go-socket.io/engineio"
+)
+
+type FramePacket struct {
+	DroneID string `json:"drone_id"`
+	Data    string `json:"data"`
+}
+
+var (
+	frameMap = make(map[string]string)
+	mu       sync.RWMutex
+)
+
+func main() {
+	// Create Socket.IO server with CORS support
+	server := socketio.NewServer(&engineio.Options{
+		// Transports field is no longer needed
+	})
+
+	server.OnConnect("/", func(s socketio.Conn) error {
+		log.Println("🌐 Client connected:", s.ID())
+		return nil
+	})
+
+	server.OnEvent("/", "join", func(s socketio.Conn, room string) {
+		s.Join(room)
+		log.Println("📡 Client joined room:", room)
+
+		// Send last frame if exists
+		mu.RLock()
+		lastFrame, exists := frameMap[room]
+		mu.RUnlock()
+
+		if exists {
+			packet := FramePacket{
+				DroneID: room,
+				Data:    lastFrame,
+			}
+			s.Emit("frame", packet)
+			log.Println("📤 Sent last frame to new client in room:", room)
+		}
+	})
+
+	server.OnDisconnect("/", func(s socketio.Conn, reason string) {
+		log.Println("🔌 Client disconnected:", s.ID(), "reason:", reason)
+	})
+
+	// Start UDP listener in background
+	go startUDPReceiver(server)
+
+	// Attach Socket.IO to HTTP server
+	mux := http.NewServeMux()
+	mux.Handle("/socket.io/", allowCORS(server)) // Enable CORS for Socket.IO
+
+	// Test route
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		fmt.Fprintln(w, "🚀 Drone Streaming Server is running!")
+	})
+
+	log.Println("🚀 Server running on http://192.168.0.107:5000")
+	log.Fatal(http.ListenAndServe(":5000", mux))
+}
+
+func startUDPReceiver(server *socketio.Server) {
+	addr, err := net.ResolveUDPAddr("udp", ":9000")
+	if err != nil {
+		log.Fatal("UDP resolve error:", err)
+	}
+
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		log.Fatal("UDP listen error:", err)
+	}
+	defer conn.Close()
+
+	buf := make([]byte, 65535)
+	for {
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil || n == 0 {
+			continue
+		}
+
+		var packet FramePacket
+		if err := json.Unmarshal(buf[:n], &packet); err != nil {
+			log.Println("❌ JSON decode error:", err)
+			continue
+		}
+
+		mu.Lock()
+		frameMap[packet.DroneID] = packet.Data
+		mu.Unlock()
+
+		log.Printf("📥 Received from %s (frame size: %d bytes)", packet.DroneID, len(packet.Data))
+		server.BroadcastToRoom("/", packet.DroneID, "frame", packet)
+		log.Printf("📤 Broadcasted to room: %s", packet.DroneID)
+	}
+}
+
+// Middleware to allow CORS
+func allowCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == "OPTIONS" {
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+package main
+
+import (
+    "encoding/base64"
+    "encoding/json"
+    "fmt"
+    "log"
+    "net"
+    "time"
+
+    "gocv.io/x/gocv"
+)
+
+const (
+    serverAddr  = "192.168.0.107:9000"
+    videoFile   = "C:\\Users\\ADMIN\\Videos\\sample.mp4" // Your video file
+    jpegQuality = 50
+    fps         = 10
+)
+
+type FramePacket struct {
+    DroneID string `json:"drone_id"`
+    Data    string `json:"data"`
+}
+
+func main() {
+    droneID := "drone1" // Change to drone2, drone3 for other clients
+
+    fmt.Printf("🚁 Starting client with DroneID: %s\n", droneID)
+
+    conn, err := net.Dial("udp", serverAddr)
+    if err != nil {
+        log.Fatalf("❌ UDP connection failed: %v", err)
+    }
+    defer conn.Close()
+
+    webcam, err := gocv.VideoCaptureFile(videoFile)
+    if err != nil {
+        log.Printf("⚠️ Could not open video file, sending dummy frames")
+        sendDummyFrames(droneID, conn)
+        return
+    }
+    defer webcam.Close()
+
+    img := gocv.NewMat()
+    defer img.Close()
+
+    ticker := time.NewTicker(time.Second / fps)
+    defer ticker.Stop()
+
+    for range ticker.C {
+        if ok := webcam.Read(&img); !ok || img.Empty() {
+            webcam.Set(gocv.VideoCapturePosFrames, 0)
+            continue
+        }
+
+        buf, _ := gocv.IMEncodeWithParams(".jpg", img, []int{gocv.IMWriteJpegQuality, jpegQuality})
+        base64Data := base64.StdEncoding.EncodeToString(buf.GetBytes())
+        buf.Close()
+
+        packet := FramePacket{
+            DroneID: droneID,
+            Data:    base64Data,
+        }
+
+        jsonData, _ := json.Marshal(packet)
+        conn.Write(jsonData)
+        fmt.Printf("📤 Sent frame (%d bytes)\n", len(jsonData))
+    }
+}
+
+func sendDummyFrames(droneID string, conn net.Conn) {
+    dummy := "/9j/4AAQSkZJRgABAQAAAQABAAD..." // Small black JPEG base64
+    for {
+        packet := FramePacket{
+            DroneID: droneID,
+            Data:    dummy,
+        }
+        jsonData, _ := json.Marshal(packet)
+        conn.Write(jsonData)
+        fmt.Printf("📤 Sent dummy frame (%d bytes)\n", len(jsonData))
+        time.Sleep(500 * time.Millisecond)
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🚁 Drone Live Streams</title>
+  <style>
+    body {
+      background: #111;
+      color: #eee;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .drone-container {
+      margin: 10px;
+      background: #222;
+      border: 2px solid #444;
+      border-radius: 8px;
+      padding: 5px;
+      width: 340px;
+      text-align: center;
+    }
+    .drone-container h3 {
+      margin: 5px 0;
+      font-size: 14px;
+      color: #0f0;
+    }
+    canvas {
+      width: 320px;
+      height: 240px;
+      background: black;
+      border: 1px solid #555;
+    }
+  </style>
+</head>
+<body>
+  <h1 style="width:100%; text-align:center; color:#0f0;">🚁 Drone Live Streams</h1>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    const socket = io("http://192.168.0.107:5000"); // Your Go server IP
+    const droneCanvases = {};
+
+    // Create 80 canvas containers
+    for (let i = 1; i <= 80; i++) {
+      const droneID = "drone" + i;
+      const container = document.createElement("div");
+      container.className = "drone-container";
+
+      const label = document.createElement("h3");
+      label.textContent = droneID;
+      container.appendChild(label);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 320;
+      canvas.height = 240;
+      container.appendChild(canvas);
+
+      document.body.appendChild(container);
+      droneCanvases[droneID] = canvas.getContext("2d");
+
+      socket.emit("join", droneID);
+    }
+
+    socket.on("frame", (packet) => {
+      const { drone_id, data } = packet;
+      console.log("📸 Frame received for:", drone_id);
+
+      if (droneCanvases[drone_id]) {
+        const img = new Image();
+        img.onload = () => {
+          droneCanvases[drone_id].clearRect(0, 0, 320, 240);
+          droneCanvases[drone_id].drawImage(img, 0, 0, 320, 240);
+        };
+        img.src = "data:image/jpeg;base64," + data;
+      }
+    });
+
+    socket.on("connect", () => {
+      console.log("✅ Connected to server");
+    });
+  </script>
+</body>
+</html>
