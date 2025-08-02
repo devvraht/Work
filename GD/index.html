@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>📂 Live Folder Content</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #111; color: #fff; text-align: center; }
+  h1 { margin-top: 20px; }
+  ul { list-style: none; padding: 0; }
+  li { margin: 10px 0; }
+  button { margin-left: 10px; padding: 4px 10px; cursor: pointer; }
+  a { color: #0ff; margin-left: 10px; }
+  video, img { width: 60%; margin-top: 20px; display: none; border: 2px solid #555; }
+</style>
+</head>
+<body>
+<h1>📂 Live Folder Content</h1>
+<ul id="fileList"></ul>
+
+<video id="player" controls></video>
+<img id="imageViewer" />
+
+<script>
+const ws = new WebSocket("ws://localhost:8080/ws");
+
+ws.onopen = () => console.log("✅ WebSocket connected");
+ws.onclose = () => console.warn("❌ WebSocket disconnected");
+
+ws.onmessage = (event) => {
+    const files = JSON.parse(event.data);
+    const list = document.getElementById('fileList');
+    list.innerHTML = '';
+
+    if(files.length === 0) {
+        list.innerHTML = "<li>⚠️ No files found in the folder.</li>";
+    } else {
+        files.forEach(file => {
+            const li = document.createElement('li');
+            li.innerHTML = `
+                ${file}
+                <button onclick="viewFile('${file}')">👁 View</button>
+                <a href="/files/${file}" download>⬇ Download</a>
+            `;
+            list.appendChild(li);
+        });
+    }
+};
+
+function viewFile(filename) {
+  const ext = filename.split('.').pop().toLowerCase();
+  const video = document.getElementById('player');
+  const img = document.getElementById('imageViewer');
+
+  // Hide both first
+  video.style.display = 'none';
+  img.style.display = 'none';
+  video.pause();
+
+  if (['mp4','webm','ogg'].includes(ext)) {
+    video.src = '/files/' + filename;
+    video.style.display = 'block';
+    video.play();
+  } else if (['jpg','jpeg','png','gif'].includes(ext)) {
+    img.src = '/files/' + filename;
+    img.style.display = 'block';
+  } else {
+    alert("Preview not supported for: " + filename);
+  }
+}
+</script>
+</body>
+</html>
