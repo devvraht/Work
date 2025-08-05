@@ -1,0 +1,201 @@
+// Ah, now you are pulling the **div count (number of drone streams)** from **MySQL** instead of hardcoding or sessionStorage.
+
+// This means:
+
+// 1. **Server (Node.js + MySQL)**
+
+//    * Query the DB to get the number of streams (or active drones).
+//    * Send that number to the client either by:
+
+//      * Rendering it in the HTML (server-side templating), **or**
+//      * Sending it via Socket.IO / REST API after page load.
+
+// 2. **Client (dashboard.html)**
+
+//    * Receives `divCount` from the server dynamically.
+//    * Builds the streaming divs **after** receiving the number from DB.
+
+// ---
+
+// Here’s how to modify your setup:
+
+// ---
+
+// ### **1️⃣ Node.js Server (with MySQL + Socket.IO)**
+
+// ```js
+// const express = require("express");
+// const mysql = require("mysql2/promise");
+// const http = require("http");
+// const { Server } = require("socket.io");
+// const path = require("path");
+
+// const app = express();
+// const server = http.createServer(app);
+// const io = new Server(server);
+
+// // MySQL connection
+// const db = mysql.createPool({
+//   host: "localhost",
+//   user: "root",
+//   password: "password",
+//   database: "dronesdb"
+// });
+
+// // Serve static files
+// app.use(express.static(path.join(__dirname, "public"))); // dashboard.html here
+
+// // Endpoint to get div count from DB
+// app.get("/divCount", async (req, res) => {
+//   try {
+//     const [rows] = await db.query("SELECT COUNT(*) as count FROM drones");
+//     res.json({ divCount: rows[0].count });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ error: "Database error" });
+//   }
+// });
+
+// // Socket.IO events for streaming
+// io.on("connection", (socket) => {
+//   console.log("New client connected");
+
+//   socket.on("join", (droneID) => {
+//     console.log(`Client joined Drone ${droneID}`);
+//     // Your video streaming logic goes here
+//     // Example: send fake frame for testing
+//     setInterval(() => {
+//       const fakeBase64 = ""; // Put a base64 frame here
+//       socket.emit(`frame_${droneID}`, fakeBase64);
+//     }, 1000);
+//   });
+// });
+
+// server.listen(3000, () => {
+//   console.log("Server running on http://localhost:3000");
+// });
+// ```
+
+// ---
+
+// ### **2️⃣ dashboard.html (Dynamic div creation from MySQL)**
+
+// ```html
+// <!DOCTYPE html>
+// <html lang="en">
+// <head>
+//   <meta charset="UTF-8">
+//   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+//   <title>Streaming Dashboard</title>
+//   <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+//   <style>
+//     body {
+//       background-color: #111;
+//       color: white;
+//       font-family: Arial, sans-serif;
+//       text-align: center;
+//     }
+//     #droneContainer {
+//       display: flex;
+//       flex-wrap: wrap;
+//       justify-content: center;
+//       margin-top: 20px;
+//     }
+//     .drone {
+//       background-color: #222;
+//       border-radius: 10px;
+//       padding: 10px;
+//       margin: 10px;
+//       width: 320px;
+//       text-align: center;
+//     }
+//     .drone h3 {
+//       margin: 5px 0;
+//     }
+//     canvas {
+//       background-color: black;
+//       border-radius: 8px;
+//     }
+//   </style>
+// </head>
+// <body>
+//   <h1>🎥 Drone Live Streams</h1>
+//   <div id="droneContainer"></div>
+
+//   <script>
+//     console.log("🌐 Stream page loaded");
+//     const socket = io("http://localhost:3000");
+
+//     // 1️⃣ Fetch div count from MySQL via API
+//     fetch("/divCount")
+//       .then((res) => res.json())
+//       .then((data) => {
+//         const divCount = data.divCount;
+//         console.log("🎥 Div Count from MySQL:", divCount);
+
+//         const droneIDs = Array.from({ length: divCount }, (_, i) => (i + 1).toString());
+//         const contexts = {};
+
+//         socket.on("connect", () => {
+//           console.log("✅ Connected to server");
+//         });
+
+//         // 2️⃣ Dynamically create divs & canvas for each drone
+//         droneIDs.forEach((id) => {
+//           const container = document.createElement("div");
+//           container.className = "drone";
+
+//           const label = document.createElement("h3");
+//           label.textContent = `Drone ${id}`;
+//           container.appendChild(label);
+
+//           const canvas = document.createElement("canvas");
+//           canvas.id = `drone_${id}`;
+//           canvas.width = 300;
+//           canvas.height = 200;
+//           container.appendChild(canvas);
+
+//           document.getElementById("droneContainer").appendChild(container);
+
+//           const ctx = canvas.getContext("2d");
+//           contexts[id] = ctx;
+
+//           socket.emit("join", id);
+
+//           // 3️⃣ Render frames dynamically
+//           socket.on(`frame_${id}`, (base64) => {
+//             const img = new Image();
+//             img.onload = () => {
+//               ctx.clearRect(0, 0, canvas.width, canvas.height);
+//               ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+//             };
+//             img.src = "data:image/jpeg;base64," + base64;
+//           });
+//         });
+//       });
+//   </script>
+// </body>
+// </html>
+// ```
+
+// ---
+
+// ### ✅ **How this works**
+
+// 1. **Node.js server**:
+
+//    * Queries MySQL for number of active drones.
+//    * Serves `/divCount` endpoint for the frontend.
+//    * Handles **Socket.IO streaming events**.
+
+// 2. **Frontend**:
+
+//    * Fetches `divCount` from `/divCount`.
+//    * Dynamically creates that many `<canvas>` elements.
+//    * Subscribes to `frame_ID` events to render frames.
+
+// ---
+
+// If your **MySQL table** has a **column for drone IDs** and **status**, I can update this to **only stream active drones dynamically** instead of sequential numbering.
+
+// Do you want me to give that **active drone filtering version** too?

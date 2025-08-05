@@ -1,0 +1,105 @@
+body {
+    margin: 0;
+    padding: 0;    
+}
+#Full_Body {
+    width: 100vw;
+    height: 100vh;
+    background-color: black;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+#Full_Header {
+    width: 100vw;
+    height: 10vh;
+    background-color: #333;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+}
+#Full_Content {
+    flex-direction: column;
+    width: 100vw;
+    height: 90vh;
+    background-color: #fff;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+}
+#Empty1 {
+    width: 30%;
+    height: 100%;
+    background-color: transparent;
+}
+#Empty2 {
+    width: 30%;
+    height: 100%;
+    background-color: transparent;
+}
+#Login_Box{
+    width: 40%;
+    height: 50%;
+    background-color: grey;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+#Nameing {
+    width: 100%;
+    height: 25%;
+    display: flex;
+    flex-direction: column;
+    background-color: #333;
+    justify-content: center;
+    align-items: center;
+}
+#Name {
+    color: white;
+    font-weight: bold;
+    font-size: 2em;
+    text-align: center;
+}
+#Usr_Pass{
+    width: 100%;
+    height: 55%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+#Usr_Pass input {
+    width: 60%;
+    padding: 10px;
+    font-size: 1em;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+#Login_Button{
+    width: 100%;
+    height: 20%;
+    background-color: #4CAF50;
+    color: white;
+    font-size: 1.5em;
+    border: none;
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+#login{
+    width: 50%;
+    height: 50%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+#login:hover {
+    background-color: #45a049;
+}

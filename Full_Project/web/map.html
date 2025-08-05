@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Map + Video</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<style>
+body { margin:0; overflow:hidden; }
+#mapContainer { width:100vw; height:100vh; }
+#floatingVideo {
+  width:320px; height:240px;
+  position:absolute; bottom:10px; left:10px;
+  background:black; border:2px solid #00d4ff; border-radius:8px;
+  display:flex; flex-direction:column; align-items:center;
+}
+canvas { width:100%; height:calc(100% - 20px); }
+.label { color:white; font-size:12px; background:rgba(0,0,0,0.5); width:100%; text-align:center; }
+</style>
+</head>
+<body>
+<div id="mapContainer"></div>
+<div id="floatingVideo">
+  <canvas id="videoCanvas" width="320" height="220"></canvas>
+  <div class="label" id="telemetryOverlay">Telemetry</div>
+</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const droneID = params.get("droneID");
+
+const map = L.map('mapContainer').setView([12.9716,77.5946], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+let marker = L.marker([12.9716,77.5946]).addTo(map);
+
+const canvas = document.getElementById("videoCanvas");
+const ctx = canvas.getContext("2d");
+const telemetryOverlay = document.getElementById("telemetryOverlay");
+
+const ws = new WebSocket("ws://localhost:8080/view");
+ws.onmessage = (event)=>{
+  const packet = JSON.parse(event.data);
+  if(packet.type==="frame" && packet.droneID===droneID) {
+    const img = new Image();
+    img.src = "data:image/jpeg;base64,"+packet.frame;
+    img.onload = ()=>ctx.drawImage(img,0,0,canvas.width,canvas.height);
+
+    telemetryOverlay.textContent = `Lat:${packet.telemetry.lat.toFixed(4)} Lng:${packet.telemetry.lng.toFixed(4)} Heading:${packet.telemetry.heading}°`;
+    marker.setLatLng([packet.telemetry.lat, packet.telemetry.lng]);
+  }
+}
+</script>
+</body>
+</html>
